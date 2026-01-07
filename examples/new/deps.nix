@@ -4,6 +4,17 @@
 
 let
   sources = {
+    "@hono/zod-validator-0.4.3" = {
+      type = "npm";
+      name = "_at_hono_slash_zod-validator";
+      packageName = "@hono/zod-validator";
+      version = "0.4.3";
+      registryPath = "registry.npmjs.org/@hono/zod-validator/0.4.3";
+      src = fetchurl {
+        url = "https://registry.npmjs.org/@hono/zod-validator/-/zod-validator-0.4.3.tgz";
+        sha512 = "xIgMYXDyJ4Hj6ekm9T9Y27s080Nl9NXHcJkOvkXPhubOLj8hZkOL8pDnnXfvCf5xEE8Q4oMFenQUZZREUY2gqQ==";
+      };
+    };
     "hono-4.11.3" = {
       type = "npm";
       name = "hono";
@@ -13,6 +24,17 @@ let
       src = fetchurl {
         url = "https://registry.npmjs.org/hono/-/hono-4.11.3.tgz";
         sha512 = "PmQi306+M/ct/m5s66Hrg+adPnkD5jiO6IjA7WhWw0gSBSo1EcRegwuI1deZ+wd5pzCGynCcn2DprnE4/yEV4w==";
+      };
+    };
+    "zod-3.25.76" = {
+      type = "npm";
+      name = "zod";
+      packageName = "zod";
+      version = "3.25.76";
+      registryPath = "registry.npmjs.org/zod/3.25.76";
+      src = fetchurl {
+        url = "https://registry.npmjs.org/zod/-/zod-3.25.76.tgz";
+        sha512 = "gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==";
       };
     };
   };

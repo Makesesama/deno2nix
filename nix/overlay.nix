@@ -29,7 +29,25 @@ final: prev: {
         nativeBuildInputs = [ final.deno ];
 
         dontConfigure = true;
-        dontBuild = true;
+
+        buildPhase = ''
+          runHook preBuild
+
+          # Set up build-time cache
+          export DENO_DIR="$TMPDIR/deno"
+          mkdir -p "$DENO_DIR"
+          cp -r ${depsNix.cache} "$DENO_DIR/npm"
+          chmod -R u+w "$DENO_DIR/npm"
+
+          # Copy config files for caching
+          cp ${denoJson} deno.json
+          cp ${denoLock} deno.lock
+
+          # Pre-cache to create all variant directories
+          deno cache --node-modules-dir=false ${entrypoint}
+
+          runHook postBuild
+        '';
 
         installPhase = ''
           runHook preInstall
@@ -38,16 +56,16 @@ final: prev: {
           mkdir -p $out/lib
           cp -r . $out/lib/
 
-          # Copy deno config files
-          cp ${denoJson} $out/lib/deno.json
-          cp ${denoLock} $out/lib/deno.lock
+          # Copy the fully-resolved cache
+          mkdir -p $out/cache
+          cp -r "$DENO_DIR/npm" $out/cache/
 
           # Create wrapper script
           mkdir -p $out/bin
           cat > $out/bin/${pname} << 'WRAPPER'
           #!/usr/bin/env bash
           export DENO_DIR="$(mktemp -d)"
-          ln -s ${depsNix.cache} "$DENO_DIR/npm"
+          ln -s $out/cache/npm "$DENO_DIR/npm"
           cd $out/lib
           exec ${final.deno}/bin/deno run \
             --cached-only \
