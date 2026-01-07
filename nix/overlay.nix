@@ -51,6 +51,7 @@ final: prev: {
           cd $out/lib
           exec ${final.deno}/bin/deno run \
             --cached-only \
+            --node-modules-dir=false \
             --config deno.json \
             ${perms} \
             ${entrypoint} "$@"
