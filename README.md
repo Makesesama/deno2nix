@@ -33,8 +33,10 @@ nix run github:Makesesama/deno2nix -- deno.lock deps.nix
       packages.${system}.default = pkgs.deno2nix.mkDenoApp {
         pname = "my-app";
         version = "1.0.0";
-        src = ./.;
+        src = ./src;           # Only your source code
         deps = ./deps.nix;
+        denoJson = ./deno.json;
+        denoLock = ./deno.lock;
         entrypoint = "main.ts";
         permissions = [ "--allow-net" "--allow-env" ];
       };
@@ -69,11 +71,11 @@ nix run github:Makesesama/deno2nix -- deno.lock deps.nix
 |--------|---------|-------------|
 | `pname` | required | Package name |
 | `version` | `"0.0.0"` | Package version |
-| `src` | required | Source directory (should contain deno.json) |
+| `src` | required | Source code directory |
 | `deps` | required | Path to generated deps.nix |
-| `config` | `"deno.json"` | Deno config file |
-| `lockfile` | `"deno.lock"` | Deno lock file |
-| `entrypoint` | `"main.ts"` | Main entry point |
+| `denoJson` | required | Path to deno.json |
+| `denoLock` | required | Path to deno.lock |
+| `entrypoint` | `"main.ts"` | Entry point relative to src |
 | `permissions` | `["--allow-all"]` | Deno permissions |
 
 ## Generated deps.nix

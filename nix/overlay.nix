@@ -6,15 +6,15 @@ final: prev: {
     importDeps = depsFile: final.callPackage depsFile {};
 
     # Build a Deno application
-    # Usage: deno2nix.mkDenoApp { pname, version, src, deps, entrypoint, permissions }
+    # Usage: deno2nix.mkDenoApp { pname, version, src, deps, ... }
     mkDenoApp = {
       pname,
       version ? "0.0.0",
-      src,
-      deps,
-      config ? "deno.json",
-      lockfile ? "deno.lock",
-      entrypoint ? "main.ts",
+      src,                          # Source code directory
+      deps,                         # Path to deps.nix
+      denoJson,                     # Path to deno.json
+      denoLock,                     # Path to deno.lock
+      entrypoint ? "main.ts",       # Entry point relative to src
       permissions ? ["--allow-all"],
     }:
       let
@@ -38,6 +38,10 @@ final: prev: {
           mkdir -p $out/lib
           cp -r . $out/lib/
 
+          # Copy deno config files
+          cp ${denoJson} $out/lib/deno.json
+          cp ${denoLock} $out/lib/deno.lock
+
           # Create wrapper script
           mkdir -p $out/bin
           cat > $out/bin/${pname} << 'WRAPPER'
@@ -47,7 +51,7 @@ final: prev: {
           cd $out/lib
           exec ${final.deno}/bin/deno run \
             --cached-only \
-            --config ${config} \
+            --config deno.json \
             ${perms} \
             ${entrypoint} "$@"
           WRAPPER

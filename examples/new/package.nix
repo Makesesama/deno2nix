@@ -5,6 +5,8 @@ deno2nix.mkDenoApp {
   version = "0.1.0";
   src = ./.;
   deps = ./deps.nix;
+  denoJson = ./deno.json;
+  denoLock = ./deno.lock;
   entrypoint = "main.ts";
-  permissions = ["--allow-net" "--allow-env"];
+  permissions = [ "--allow-net" "--allow-env" ];
 }
