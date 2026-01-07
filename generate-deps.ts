@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write
+#!/usr/bin/env -S deno run --allow-read --allow-write --allow-net
 /**
  * deno2nix - Generate deps.nix from deno.lock (v5 format)
  *
@@ -93,7 +93,8 @@ function getJsrTarballUrl(
   name: string,
   version: string
 ): string {
-  return `https://npm.jsr.io/@jsr/${scope}__${name}/-/${scope}__${name}-${version}.tgz`;
+  // JSR npm mirror uses format: https://npm.jsr.io/~/11/@jsr/{scope}__{name}/{version}.tgz
+  return `https://npm.jsr.io/~/11/@jsr/${scope}__${name}/${version}.tgz`;
 }
 
 // Convert integrity string to hash type and value
@@ -170,12 +171,43 @@ function processNpmPackages(
   }
 }
 
+// Fetch JSR package metadata from npm.jsr.io to get correct tarball hash
+async function fetchJsrNpmMetadata(
+  scope: string,
+  name: string,
+  version: string
+): Promise<{ url: string; integrity: string } | null> {
+  const jsrNpmName = `@jsr/${scope}__${name}`;
+  const registryUrl = `https://npm.jsr.io/${jsrNpmName}`;
+
+  try {
+    const response = await fetch(registryUrl);
+    if (!response.ok) {
+      console.error(`Warning: Failed to fetch JSR metadata for ${jsrNpmName}: ${response.status}`);
+      return null;
+    }
+    const data = await response.json();
+    const versionData = data.versions?.[version];
+    if (!versionData?.dist) {
+      console.error(`Warning: No dist info for ${jsrNpmName}@${version}`);
+      return null;
+    }
+    return {
+      url: versionData.dist.tarball,
+      integrity: versionData.dist.integrity,
+    };
+  } catch (e) {
+    console.error(`Warning: Error fetching JSR metadata for ${jsrNpmName}: ${e}`);
+    return null;
+  }
+}
+
 // Process JSR packages from lock file
-function processJsrPackages(
+async function processJsrPackages(
   jsr: Record<string, JsrPackage>,
   sources: Map<string, NixSource>
-): void {
-  for (const [key, pkg] of Object.entries(jsr)) {
+): Promise<void> {
+  for (const [key, _pkg] of Object.entries(jsr)) {
     const parsed = parseJsrPackageKey(key);
     if (!parsed) {
       console.error(`Warning: Could not parse JSR package key: ${key}`);
@@ -187,14 +219,21 @@ function processJsrPackages(
     const sourceKey = `${fullName}-${parsed.version}`;
     if (sources.has(sourceKey)) continue;
 
-    const integrity = parseIntegrity(pkg.integrity);
+    // Fetch the correct hash from npm.jsr.io registry
+    const metadata = await fetchJsrNpmMetadata(parsed.scope, parsed.name, parsed.version);
+    if (!metadata) {
+      console.error(`Warning: Skipping ${fullName}@${parsed.version} - could not fetch metadata`);
+      continue;
+    }
+
+    const integrity = parseIntegrity(metadata.integrity);
     sources.set(sourceKey, {
       type: "jsr",
       name: fullName,
       packageName: fullName,
       version: parsed.version,
       registryPath: `npm.jsr.io/${jsrNpmName}/${parsed.version}`,
-      url: getJsrTarballUrl(parsed.scope, parsed.name, parsed.version),
+      url: metadata.url,
       hashType: integrity.type,
       hash: integrity.hash,
     });
@@ -236,7 +275,7 @@ function processRemotePackages(
 }
 
 // Generate complete deps.nix file
-function generateDepsNix(lock: DenoLockV5): string {
+async function generateDepsNix(lock: DenoLockV5): Promise<string> {
   const sources = new Map<string, NixSource>();
 
   // Process all package types
@@ -244,7 +283,8 @@ function generateDepsNix(lock: DenoLockV5): string {
     processNpmPackages(lock.npm, sources);
   }
   if (lock.jsr) {
-    processJsrPackages(lock.jsr, sources);
+    console.log("Fetching JSR package metadata from npm.jsr.io...");
+    await processJsrPackages(lock.jsr, sources);
   }
   if (lock.remote) {
     processRemotePackages(lock.remote, sources);
@@ -329,7 +369,7 @@ async function main() {
   }
 
   console.log(`Generating ${outputPath}...`);
-  const nixContent = generateDepsNix(lock);
+  const nixContent = await generateDepsNix(lock);
 
   try {
     await Deno.writeTextFile(outputPath, nixContent);

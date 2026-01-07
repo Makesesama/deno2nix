@@ -4,5 +4,65 @@ final: prev: {
     # Returns { sources, cache } where cache is ready-to-use npm cache
     # Usage: deno2nix.importDeps ./deps.nix
     importDeps = depsFile: final.callPackage depsFile {};
+
+    # Build a Deno application
+    # Usage: deno2nix.mkDenoApp { pname, version, src, deps, entrypoint, permissions }
+    mkDenoApp = {
+      pname,
+      version ? "0.0.0",
+      src,
+      deps,
+      config ? "deno.json",
+      lockfile ? "deno.lock",
+      entrypoint ? "main.ts",
+      permissions ? ["--allow-all"],
+    }:
+      let
+        depsNix = final.callPackage deps {};
+        perms = final.lib.concatStringsSep " " permissions;
+      in
+      final.stdenv.mkDerivation {
+        inherit pname version;
+
+        src = src;
+
+        nativeBuildInputs = [ final.deno ];
+
+        dontConfigure = true;
+        dontBuild = true;
+
+        installPhase = ''
+          runHook preInstall
+
+          # Copy source files
+          mkdir -p $out/lib
+          cp -r . $out/lib/
+
+          # Create wrapper script
+          mkdir -p $out/bin
+          cat > $out/bin/${pname} << 'WRAPPER'
+          #!/usr/bin/env bash
+          export DENO_DIR="$(mktemp -d)"
+          ln -s ${depsNix.cache} "$DENO_DIR/npm"
+          cd $out/lib
+          exec ${final.deno}/bin/deno run \
+            --cached-only \
+            --config ${config} \
+            ${perms} \
+            ${entrypoint} "$@"
+          WRAPPER
+          chmod +x $out/bin/${pname}
+
+          # Fix the $out reference in the script
+          substituteInPlace $out/bin/${pname} \
+            --replace '$out' "$out"
+
+          runHook postInstall
+        '';
+
+        meta = {
+          mainProgram = pname;
+        };
+      };
   };
 }

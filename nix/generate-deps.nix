@@ -29,6 +29,7 @@ stdenv.mkDerivation {
       --add-flags "run" \
       --add-flags "--allow-read" \
       --add-flags "--allow-write" \
+      --add-flags "--allow-net" \
       --add-flags "$out/share/deno2nix/generate-deps.ts"
 
     runHook postInstall

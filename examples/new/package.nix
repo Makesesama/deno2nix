@@ -1,20 +1,10 @@
-{
-  lib,
-  stdenv,
-  deno,
-  writeShellScriptBin,
-  fetchurl,
-}:
-let
-  deps = import ./deps.nix { inherit stdenv fetchurl lib; };
+{ deno2nix }:
+
+deno2nix.mkDenoApp {
+  pname = "deno2nix-example";
+  version = "0.1.0";
   src = ./.;
-in
-writeShellScriptBin "deno2nix-example" ''
-  export DENO_DIR="$(mktemp -d)"
-  ln -s ${deps.cache} "$DENO_DIR/npm"
-  exec ${deno}/bin/deno run \
-    --cached-only \
-    --allow-net \
-    --allow-env \
-    ${src}/main.ts "$@"
-''
+  deps = ./deps.nix;
+  entrypoint = "main.ts";
+  permissions = ["--allow-net" "--allow-env"];
+}
