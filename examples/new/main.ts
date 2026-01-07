@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
+import { join } from "@std/path";
 
 const app = new Hono();
 
@@ -10,10 +11,13 @@ const greetSchema = z.object({
 });
 
 app.get("/", (c) => {
+  // Test JSR package (join from @std/path)
+  const testPath = join("hello", "world");
   return c.json({
     message: "Hello from deno2nix!",
     runtime: "Deno",
     framework: "Hono (npm package)",
+    testPath,
   });
 });
 

@@ -16,78 +16,121 @@ final: prev: {
       denoLock,                     # Path to deno.lock
       entrypoint ? "main.ts",       # Entry point relative to src
       permissions ? ["--allow-all"],
+      # Hash of the DENO_DIR after fetching all deps
+      # Required for reproducible builds. Get it by running:
+      #   nix build .#<name>.denoCache 2>&1 | grep "got:"
+      denoCacheHash ? null,
     }:
       let
         depsNix = final.callPackage deps {};
         perms = final.lib.concatStringsSep " " permissions;
+
+        # Fixed-output derivation that fetches all dependencies
+        denoCache = final.stdenv.mkDerivation {
+          name = "${pname}-deno-cache";
+
+          nativeBuildInputs = [ final.deno final.cacert ];
+
+          # Must have source to know what to fetch
+          inherit src;
+
+          dontConfigure = true;
+          dontFixup = true;
+
+          buildPhase = ''
+            export DENO_DIR="$out"
+            export SSL_CERT_FILE="${final.cacert}/etc/ssl/certs/ca-bundle.crt"
+            mkdir -p "$DENO_DIR"
+
+            # Copy pre-fetched npm packages
+            if [ -d "${depsNix.cache}/npm" ]; then
+              cp -r ${depsNix.cache}/npm "$DENO_DIR/npm"
+              chmod -R u+w "$DENO_DIR/npm"
+            fi
+
+            # Copy config files
+            cp ${denoJson} deno.json
+            cp ${denoLock} deno.lock
+
+            # Cache all dependencies (fetches JSR packages)
+            deno cache --node-modules-dir=false --config deno.json ${entrypoint}
+
+            # Pre-fetch the deno compile runtime binary by compiling a dummy script
+            echo 'console.log("hello")' > /tmp/dummy.ts
+            deno compile --output /tmp/dummy /tmp/dummy.ts || true
+            rm -f /tmp/dummy /tmp/dummy.ts
+          '';
+
+          installPhase = "true";
+
+          # FOD settings
+          outputHashMode = "recursive";
+          outputHashAlgo = "sha256";
+          outputHash = denoCacheHash;
+        };
       in
-      final.stdenv.mkDerivation {
-        inherit pname version;
+      let
+        # Build the raw binary first
+        rawBinary = final.stdenv.mkDerivation {
+          name = "${pname}-unwrapped";
+          inherit src;
 
-        src = src;
+          nativeBuildInputs = [ final.deno ];
 
-        nativeBuildInputs = [ final.deno ];
+          dontConfigure = true;
+          dontFixup = true;  # Don't patch the binary
 
-        dontConfigure = true;
+          buildPhase = if denoCacheHash == null then ''
+            echo "ERROR: denoCacheHash is required for mkDenoApp"
+            echo ""
+            echo "To get the hash, run:"
+            echo "  nix build .#example.denoCache"
+            echo ""
+            echo "Then look for 'got:' in the error output and add it to your package.nix:"
+            echo "  denoCacheHash = \"sha256-XXXX...\";"
+            exit 1
+          '' else ''
+            runHook preBuild
 
-        buildPhase = ''
-          runHook preBuild
+            # Set up cache from FOD
+            export DENO_DIR="$TMPDIR/deno"
+            cp -r ${denoCache} "$DENO_DIR"
+            chmod -R u+w "$DENO_DIR"
 
-          # Set up build-time cache with pre-fetched npm packages
-          export DENO_DIR="$TMPDIR/deno"
-          mkdir -p "$DENO_DIR"
-          cp -r ${depsNix.cache} "$DENO_DIR/npm"
-          chmod -R u+w "$DENO_DIR/npm"
+            # Copy config files
+            cp ${denoJson} deno.json
+            cp ${denoLock} deno.lock
 
-          # Copy config files for caching
-          cp ${denoJson} deno.json
-          cp ${denoLock} deno.lock
+            # Compile to standalone binary
+            deno compile \
+              --cached-only \
+              --node-modules-dir=false \
+              --config deno.json \
+              ${perms} \
+              --output ${pname} \
+              ${entrypoint}
 
-          # Pre-cache to resolve all dependencies (npm variants + JSR packages)
-          deno cache --node-modules-dir=false ${entrypoint}
+            runHook postBuild
+          '';
 
-          runHook postBuild
-        '';
-
-        installPhase = ''
-          runHook preInstall
-
-          # Copy source files
-          mkdir -p $out/lib
-          cp -r . $out/lib/
-
-          # Copy the entire DENO_DIR (includes npm cache + JSR deps + remote deps)
-          cp -r "$DENO_DIR" $out/cache
-
-          # Create wrapper script
-          mkdir -p $out/bin
-          cat > $out/bin/${pname} << 'WRAPPER'
-          #!/usr/bin/env bash
-          export DENO_DIR="$(mktemp -d)"
-          # Symlink all cache subdirectories
-          for dir in $out/cache/*; do
-            ln -s "$dir" "$DENO_DIR/$(basename "$dir")"
-          done
-          cd $out/lib
-          exec ${final.deno}/bin/deno run \
-            --cached-only \
-            --node-modules-dir=false \
-            --config deno.json \
-            ${perms} \
-            ${entrypoint} "$@"
-          WRAPPER
-          chmod +x $out/bin/${pname}
-
-          # Fix the $out reference in the script
-          substituteInPlace $out/bin/${pname} \
-            --replace '$out' "$out"
-
-          runHook postInstall
-        '';
+          installPhase = ''
+            mkdir -p $out/bin
+            cp ${pname} $out/bin/${pname}
+          '';
+        };
+      in
+      # Wrap the binary in a FHS environment for NixOS compatibility
+      (final.buildFHSEnv {
+        name = pname;
+        targetPkgs = pkgs: [ pkgs.stdenv.cc.cc.lib ];
+        runScript = "${rawBinary}/bin/${pname}";
 
         meta = {
           mainProgram = pname;
         };
-      };
+      }).overrideAttrs (old: {
+        inherit version;
+        passthru = (old.passthru or {}) // { inherit denoCache; unwrapped = rawBinary; };
+      });
   };
 }
