@@ -33,7 +33,7 @@ final: prev: {
         buildPhase = ''
           runHook preBuild
 
-          # Set up build-time cache
+          # Set up build-time cache with pre-fetched npm packages
           export DENO_DIR="$TMPDIR/deno"
           mkdir -p "$DENO_DIR"
           cp -r ${depsNix.cache} "$DENO_DIR/npm"
@@ -43,7 +43,7 @@ final: prev: {
           cp ${denoJson} deno.json
           cp ${denoLock} deno.lock
 
-          # Pre-cache to create all variant directories
+          # Pre-cache to resolve all dependencies (npm variants + JSR packages)
           deno cache --node-modules-dir=false ${entrypoint}
 
           runHook postBuild
@@ -56,16 +56,18 @@ final: prev: {
           mkdir -p $out/lib
           cp -r . $out/lib/
 
-          # Copy the fully-resolved cache
-          mkdir -p $out/cache
-          cp -r "$DENO_DIR/npm" $out/cache/
+          # Copy the entire DENO_DIR (includes npm cache + JSR deps + remote deps)
+          cp -r "$DENO_DIR" $out/cache
 
           # Create wrapper script
           mkdir -p $out/bin
           cat > $out/bin/${pname} << 'WRAPPER'
           #!/usr/bin/env bash
           export DENO_DIR="$(mktemp -d)"
-          ln -s $out/cache/npm "$DENO_DIR/npm"
+          # Symlink all cache subdirectories
+          for dir in $out/cache/*; do
+            ln -s "$dir" "$DENO_DIR/$(basename "$dir")"
+          done
           cd $out/lib
           exec ${final.deno}/bin/deno run \
             --cached-only \
